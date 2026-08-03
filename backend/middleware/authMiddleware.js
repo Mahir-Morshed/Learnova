@@ -1,5 +1,32 @@
-const authMiddleware = (req, res, next) => {
-    next();
-};
+const jwt = require("jsonwebtoken");
+require("dotenv").config();
 
-module.exports = authMiddleware;
+// Protects routes - checks for a valid JWT in the Authorization header
+function verifyToken(req, res, next) {
+    const authHeader = req.headers["authorization"];
+    const token = authHeader && authHeader.split(" ")[1]; // "Bearer <token>"
+
+    if (!token) {
+        return res.status(401).json({ error: "No token provided" });
+    }
+
+    jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+        if (err) {
+            return res.status(403).json({ error: "Invalid or expired token" });
+        }
+        req.user = decoded; // { id, role, email }
+        next();
+    });
+}
+
+// Restricts a route to specific roles, e.g. verifyRole("instructor")
+function verifyRole(...allowedRoles) {
+    return (req, res, next) => {
+        if (!req.user || !allowedRoles.includes(req.user.role)) {
+            return res.status(403).json({ error: "Access denied for your role" });
+        }
+        next();
+    };
+}
+
+module.exports = { verifyToken, verifyRole };
