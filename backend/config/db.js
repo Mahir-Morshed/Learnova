@@ -78,7 +78,35 @@ const memoryStore = {
     ],
     resources: [],
     exams: [],
-    enrollments: []
+    enrollments: [],
+    discussions: [
+        {
+            id: 1,
+            courseid: 1,
+            lesson_id: 1,
+            title: "Question about primary keys in PostgreSQL",
+            content: "Can a primary key be composed of multiple columns (composite key)?",
+            author_role: "student",
+            student_id: 1,
+            instructor_id: null,
+            author_name: "Zabir Hasan",
+            lesson_title: "Course Overview & Setup",
+            created_at: new Date().toISOString()
+        }
+    ],
+    discussion_replies: [
+        {
+            id: 1,
+            discussion_id: 1,
+            content: "Yes! You can define a composite primary key using PRIMARY KEY (col1, col2).",
+            author_role: "instructor",
+            student_id: null,
+            instructor_id: 1,
+            author_name: "Dr. Sarah Connor",
+            is_instructor_answer: true,
+            created_at: new Date().toISOString()
+        }
+    ]
 };
 
 let autoIds = {
@@ -87,7 +115,9 @@ let autoIds = {
     courses: 3,
     modules: 3,
     lessons: 3,
-    enrollments: 1
+    enrollments: 1,
+    discussions: 2,
+    discussion_replies: 2
 };
 
 async function executeMockQuery(sql, params = []) {
@@ -173,7 +203,87 @@ async function executeMockQuery(sql, params = []) {
         return { rows: memoryStore.categories, rowCount: memoryStore.categories.length };
     }
 
-    // 10. Default fallback
+    // 10. Get discussions by course
+    if (upper.includes("FROM DISCUSSIONS D") && upper.includes("WHERE D.COURSEID = $1")) {
+        let list = memoryStore.discussions.filter(d => String(d.courseid) === String(params[0]));
+        if (params.length > 1 && params[1]) {
+            list = list.filter(d => String(d.lesson_id) === String(params[1]));
+        }
+        const enriched = list.map(d => {
+            const replies = memoryStore.discussion_replies.filter(r => r.discussion_id === d.id);
+            return { ...d, reply_count: replies.length };
+        });
+        return { rows: enriched, rowCount: enriched.length };
+    }
+
+    // 11. Get discussion by ID
+    if (upper.includes("FROM DISCUSSIONS") && upper.includes("WHERE D.ID = $1")) {
+        const found = memoryStore.discussions.find(d => String(d.id) === String(params[0]));
+        return { rows: found ? [found] : [], rowCount: found ? 1 : 0 };
+    }
+
+    if (upper.includes("FROM DISCUSSIONS") && upper.includes("WHERE ID = $1")) {
+        const found = memoryStore.discussions.find(d => String(d.id) === String(params[0]));
+        return { rows: found ? [found] : [], rowCount: found ? 1 : 0 };
+    }
+
+    // 12. Insert discussion
+    if (upper.startsWith("INSERT INTO DISCUSSIONS")) {
+        const id = autoIds.discussions++;
+        const newThread = {
+            id,
+            courseid: params[0],
+            lesson_id: params[1] || null,
+            title: params[2],
+            content: params[3],
+            author_role: params[4],
+            student_id: params[5] || null,
+            instructor_id: params[6] || null,
+            author_name: params[4] === "student" ? "Enrolled Student" : "Course Instructor",
+            created_at: new Date().toISOString()
+        };
+        memoryStore.discussions.push(newThread);
+        return { rows: [newThread], rowCount: 1 };
+    }
+
+    // 13. Get replies for discussion
+    if (upper.includes("FROM DISCUSSION_REPLIES") && upper.includes("WHERE R.DISCUSSION_ID = $1")) {
+        const list = memoryStore.discussion_replies.filter(r => String(r.discussion_id) === String(params[0]));
+        return { rows: list, rowCount: list.length };
+    }
+
+    // 14. Insert reply
+    if (upper.startsWith("INSERT INTO DISCUSSION_REPLIES")) {
+        const id = autoIds.discussion_replies++;
+        const newReply = {
+            id,
+            discussion_id: Number(params[0]),
+            content: params[1],
+            author_role: params[2],
+            student_id: params[3] || null,
+            instructor_id: params[4] || null,
+            is_instructor_answer: Boolean(params[5]),
+            author_name: params[2] === "student" ? "Enrolled Student" : "Course Instructor",
+            created_at: new Date().toISOString()
+        };
+        memoryStore.discussion_replies.push(newReply);
+        return { rows: [newReply], rowCount: 1 };
+    }
+
+    // 15. Delete discussion
+    if (upper.startsWith("DELETE FROM DISCUSSIONS WHERE ID = $1")) {
+        memoryStore.discussions = memoryStore.discussions.filter(d => String(d.id) !== String(params[0]));
+        memoryStore.discussion_replies = memoryStore.discussion_replies.filter(r => String(r.discussion_id) !== String(params[0]));
+        return { rows: [], rowCount: 1 };
+    }
+
+    // 16. Delete reply
+    if (upper.startsWith("DELETE FROM DISCUSSION_REPLIES WHERE ID = $1")) {
+        memoryStore.discussion_replies = memoryStore.discussion_replies.filter(r => String(r.id) !== String(params[0]));
+        return { rows: [], rowCount: 1 };
+    }
+
+    // 17. Default fallback
     return { rows: [], rowCount: 0 };
 }
 
